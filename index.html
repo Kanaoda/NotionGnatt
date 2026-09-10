@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Timelinify — Notion 時間軸交付工具</title>
+  <link rel="stylesheet" href="assets/styles.css" />
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="brand">
+      <span class="logo" aria-hidden="true">T</span>
+      <div class="brand-text">
+        <strong>Timelinify</strong>
+        <span>Notion 時間軸 → 客戶交付</span>
+      </div>
+    </div>
+
+    <section class="panel" id="panelData">
+      <h2 class="panel-title">資料來源</h2>
+      <div class="dropzone" id="dropzone">
+        <input type="file" id="fileInput" accept=".csv,text/csv" hidden />
+        <p class="dz-main">拖放 Notion 匯出的 CSV</p>
+        <p class="dz-sub">或 <button type="button" id="btnBrowse" class="link">瀏覽檔案</button> · <button type="button" id="btnSample" class="link">試用範例</button></p>
+      </div>
+      <p class="file-name hidden" id="fileName"></p>
+    </section>
+
+    <section class="panel hidden" id="toolbar">
+      <h2 class="panel-title">檢視範圍</h2>
+      <div class="field">
+        <span class="field-label">專案</span>
+        <select id="filterProject"></select>
+      </div>
+      <div class="field">
+        <span class="field-label">項目類型</span>
+        <select id="filterType"></select>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <span class="field-label">分組方式</span>
+          <select id="groupBy">
+            <option value="phase">依階段</option>
+            <option value="project">依專案</option>
+            <option value="none">不分組</option>
+          </select>
+        </div>
+        <div class="field">
+          <span class="field-label">時間刻度</span>
+          <select id="zoom">
+            <option value="day" selected>日</option>
+            <option value="week">週</option>
+            <option value="month">月</option>
+          </select>
+        </div>
+      </div>
+      <label class="switch">
+        <input type="checkbox" id="hideNoDate" checked />
+        <span>略過未排期的項目</span>
+      </label>
+    </section>
+
+    <section class="panel hidden" id="displayBar">
+      <h2 class="panel-title">時間條標籤</h2>
+      <p class="panel-hint">選擇要顯示在時間條旁的資訊</p>
+      <div class="chip-group">
+        <label class="chip"><input type="checkbox" data-show="name" checked /><span>任務名稱</span></label>
+        <label class="chip"><input type="checkbox" data-show="dates" checked /><span>日期區間</span></label>
+        <label class="chip"><input type="checkbox" data-show="person" /><span>負責人</span></label>
+        <label class="chip"><input type="checkbox" data-show="duration" /><span>工期</span></label>
+        <label class="chip"><input type="checkbox" data-show="phase" /><span>階段</span></label>
+        <label class="chip"><input type="checkbox" data-show="type" /><span>類型</span></label>
+        <label class="chip"><input type="checkbox" data-show="note" /><span>備註</span></label>
+      </div>
+      <label class="switch">
+        <input type="checkbox" id="showLeftCol" checked />
+        <span>顯示左側任務清單</span>
+      </label>
+    </section>
+
+    <section class="panel hidden" id="privacy">
+      <h2 class="panel-title">交付前檢查</h2>
+      <label class="switch">
+        <input type="checkbox" id="clientMode" />
+        <span>以客戶視角預覽</span>
+      </label>
+      <p class="panel-hint">將滑鼠移到圖表左側的任務上，按「隱藏」即可將敏感項目排除在交付內容之外。</p>
+      <div class="exclude-head">
+        <span id="excludeStat">尚未隱藏任何項目</span>
+        <button type="button" id="btnClearExclude" class="link">全部恢復</button>
+      </div>
+      <div class="exclude-list" id="excludeList"></div>
+    </section>
+
+    <section class="panel hidden" id="mapping">
+      <details>
+        <summary>進階設定：欄位對應</summary>
+        <p class="panel-hint map-hint">系統已自動辨識各欄位用途；只有在日期或名稱抓錯欄時才需要調整。</p>
+        <div class="map-grid" id="mapGrid"></div>
+      </details>
+    </section>
+
+    <footer class="sidebar-foot">
+      <p>資料只在你的瀏覽器處理，不會上傳。</p>
+      <p>所有設定自動儲存，下次匯入即還原。</p>
+    </footer>
+  </aside>
+
+  <main class="workspace">
+    <header class="ws-head">
+      <div class="ws-title">
+        <h1 id="wsTitle">時間軸預覽</h1>
+        <span class="stat" id="stat"></span>
+      </div>
+      <div class="ws-actions">
+        <button type="button" id="btnHtml" class="btn" disabled title="互動式網頁，可捲動瀏覽">匯出網頁</button>
+        <button type="button" id="btnPdf" class="btn" disabled title="以完整長圖轉存 PDF，不會被分頁切斷">匯出 PDF</button>
+        <button type="button" id="btnPng" class="btn primary" disabled title="單張完整圖片，適合直接傳送">匯出圖片</button>
+      </div>
+    </header>
+
+    <div id="ganttWrap" class="gantt-wrap hidden">
+      <div class="gantt" id="gantt"></div>
+    </div>
+
+    <div class="empty-state" id="empty">
+      <div class="empty-card">
+        <h2>三步驟，把 Notion 時間軸變成客戶能看的甘特圖</h2>
+        <ol>
+          <li><strong>匯出</strong> — 在 Notion 資料庫按「⋯ → Export → CSV」</li>
+          <li><strong>匯入</strong> — 把 CSV 拖進左側「資料來源」</li>
+          <li><strong>交付</strong> — 隱藏內部項目後，匯出圖片、PDF 或網頁</li>
+        </ol>
+        <button type="button" id="btnSampleEmpty" class="btn primary">先用範例資料試試</button>
+      </div>
+    </div>
+  </main>
+
+  <script src="assets/app.js"></script>
+</body>
+</html>
