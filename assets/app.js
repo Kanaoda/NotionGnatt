@@ -149,6 +149,8 @@
     clientMode: $("clientMode"),
     showLeftCol: $("showLeftCol"),
     showToday: $("showToday"),
+    showWeekday: $("showWeekday"),
+    showWeekendShade: $("showWeekendShade"),
     displayBar: $("displayBar"),
     btnHtml: $("btnHtml"),
     btnPng: $("btnPng"),
@@ -182,6 +184,8 @@
       show,
       showLeftCol: els.showLeftCol.checked,
       showToday: els.showToday.checked,
+      showWeekday: els.showWeekday.checked,
+      showWeekendShade: els.showWeekendShade.checked,
       groupBy: els.groupBy.value,
       zoom: els.zoom.value,
       hideNoDate: els.hideNoDate.checked,
@@ -218,6 +222,8 @@
     }
     if (typeof g.showLeftCol === "boolean") els.showLeftCol.checked = g.showLeftCol;
     if (typeof g.showToday === "boolean") els.showToday.checked = g.showToday;
+    if (typeof g.showWeekday === "boolean") els.showWeekday.checked = g.showWeekday;
+    if (typeof g.showWeekendShade === "boolean") els.showWeekendShade.checked = g.showWeekendShade;
     if (g.groupBy) els.groupBy.value = g.groupBy;
     if (g.zoom) els.zoom.value = g.zoom;
     if (typeof g.hideNoDate === "boolean") els.hideNoDate.checked = g.hideNoDate;
@@ -734,11 +740,17 @@
     return bits.join("");
   }
 
+  function weekdayLetter(d) {
+    const letters = tr("weekdayLetters");
+    return letters.charAt(d.getDay()) || "";
+  }
+
   function weekendGridHtml(days, min, unit) {
     const parts = [];
+    const shadeWeekend = els.showWeekendShade.checked;
     for (let i = 0; i < days; i += 1) {
       const d = addDays(min, i);
-      if (d.getDay() === 0 || d.getDay() === 6) {
+      if (shadeWeekend && (d.getDay() === 0 || d.getDay() === 6)) {
         parts.push(`<div class="grid-weekend" style="left:${i * unit}px;width:${unit}px"></div>`);
       }
       if (els.zoom.value === "day" || i % 7 === 0) {
@@ -754,14 +766,12 @@
     const span = dayDiff(task.start, task.end);
     const dur = Math.max(1, span + 1);
     const col = colorFor(task.phase);
-    const accent = shade(col, -48);
     const isPayment = task.type === "Payment-In" || /payment/i.test(task.type);
     const isMilestone = task.type === "Milestone" && span <= 0;
     const range = task.end && span > 0 ? `${fmt(task.start)} → ${fmt(task.end)}` : fmt(task.start);
-    // Always render a full rounded bar (Notion-like). Milestones get a short pill, not a clipped diamond.
     const w = isMilestone ? Math.max(unit * 0.85, 18) : Math.max(dur * unit - 2, 14);
     const cls = ["bar", isMilestone ? "milestone" : "", isPayment ? "payment" : ""].filter(Boolean).join(" ");
-    const shape = `<div class="${cls}" style="width:${w}px;background:${col};border-color:${accent};box-shadow:inset 3px 0 0 ${accent}, inset 0 1px 0 rgba(255,255,255,.35), 0 1px 2px rgba(17,51,79,.12)"></div>`;
+    const shape = `<div class="${cls}" style="width:${w}px;background:${col}"></div>`;
     return `<div class="item" style="left:${left}px">
       ${shape}
       <div class="bar-label">${labelBits(task, show, range)}</div>
@@ -926,13 +936,25 @@
     }
 
     const dayCells = [];
+    const weekdayCells = [];
+    const shadeWeekend = els.showWeekendShade.checked;
+    const showWeekday = els.showWeekday.checked;
     for (let i = 0; i < days; i += 1) {
       const d = addDays(min, i);
-      const weekend = d.getDay() === 0 || d.getDay() === 6;
+      const weekend = shadeWeekend && (d.getDay() === 0 || d.getDay() === 6);
       const label = els.zoom.value === "day" ? String(d.getDate()) : i % 7 === 0 ? String(d.getDate()) : "";
       dayCells.push(
         `<div class="day-cell${weekend ? " weekend" : ""}" style="width:${unit}px">${label}</div>`
       );
+      if (showWeekday) {
+        const wd = weekdayLetter(d);
+        const dow = d.getDay();
+        const wdClass =
+          dow === 0 ? " is-sunday" : dow === 6 ? " is-saturday" : "";
+        weekdayCells.push(
+          `<div class="weekday-cell${wdClass}" style="width:${unit}px">${escapeHtml(wd)}</div>`
+        );
+      }
     }
 
     const today = startOfDay(new Date());
@@ -946,14 +968,20 @@
 
     const noLeft = !els.showLeftCol.checked;
     els.gantt.classList.toggle("no-left", noLeft);
+    els.gantt.classList.toggle("has-weekday", showWeekday);
 
-    const head = `<div class="gantt-head">
+    const weekdayRow = showWeekday
+      ? `<div class="weekday-row">${weekdayCells.join("")}</div>`
+      : "";
+
+    const head = `<div class="gantt-head${showWeekday ? " has-weekday" : ""}">
       <div class="left-cell">${escapeHtml(tr("ganttTaskCol"))}</div>
-      <div class="time-head" style="width:${chartW}px">
+      <div class="time-head${showWeekday ? " has-weekday" : ""}" style="width:${chartW}px">
         <div class="month-row">${months
           .map((m) => `<div class="month-cell" style="width:${m.span * unit}px">${escapeHtml(m.key)}</div>`)
           .join("")}</div>
         <div class="day-row">${dayCells.join("")}</div>
+        ${weekdayRow}
       </div>
     </div>`;
 
@@ -1121,9 +1149,11 @@
 .left-cell,.group-label{background:var(--paper);border-right:1px solid var(--line);padding:0 12px;display:flex;align-items:center;gap:6px;height:var(--row-h);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .gantt-head .left-cell{font-weight:650;height:48px}.group-label{background:#eef4f9;font-weight:650;height:28px;font-size:12px}
 .phase-dot{width:8px;height:8px;border-radius:50%;flex:0 0 auto}
-.indent .task-title{padding-left:14px;color:var(--muted)}.time-head{height:48px}
-.month-row,.day-row{display:flex;height:24px}
-.month-cell,.day-cell{border-right:1px solid var(--line);font-size:11px;color:var(--muted);display:flex;align-items:center;justify-content:center;flex:0 0 auto}
+.indent .task-title{padding-left:14px;color:var(--muted)}.time-head{height:48px}.time-head.has-weekday{height:66px}
+.gantt-head.has-weekday .left-cell{height:66px}
+.month-row,.day-row{display:flex;height:24px}.weekday-row{display:flex;height:18px}
+.month-cell,.day-cell,.weekday-cell{border-right:1px solid var(--line);font-size:11px;color:var(--muted);display:flex;align-items:center;justify-content:center;flex:0 0 auto}
+.weekday-cell{font-size:9px;font-weight:650;letter-spacing:.02em}.weekday-cell.is-saturday{color:#9aa8b5}.weekday-cell.is-sunday{color:#c65442}
 .month-cell{font-weight:650;color:var(--ink);background:#e8f1f8;justify-content:flex-start;padding-left:8px}.weekend{background:#f5f8fb}
 .gantt-row .left-cell{border-bottom:1px solid #eef2f5}
 .bars{position:relative;height:var(--row-h);border-bottom:1px solid #eef2f5;overflow:visible}
@@ -1131,9 +1161,9 @@
 .grid-weekend{position:absolute;top:0;bottom:0;background:#f5f8fb;pointer-events:none;z-index:0}
 .grid-line{position:absolute;top:0;bottom:0;width:1px;background:#eef2f5;pointer-events:none;z-index:0}
 .item{position:absolute;top:8px;display:flex;align-items:center;gap:8px;z-index:1}
-.bar{flex:0 0 auto;height:24px;border-radius:6px;min-width:14px;border:1px solid transparent}
-.bar.milestone{border-radius:6px}
-.bar.payment{outline:1px dashed rgba(17,51,79,.35);outline-offset:2px}
+.bar{flex:0 0 auto;height:22px;border-radius:5px;min-width:14px;border:0;box-shadow:none}
+.bar.milestone{border-radius:5px}
+.bar.payment{outline:1px dashed rgba(17,51,79,.28);outline-offset:1px}
 .bar-label{display:flex;align-items:center;gap:8px;white-space:nowrap;font-size:12.5px}
 .bar-label .name{font-weight:650}.bar-label .dates{color:#3a5166}.bar-label .meta{color:var(--muted)}
 .tag{font-size:11px;background:#e8f1f8;color:#11334f;border-radius:999px;padding:2px 7px;font-weight:650}
@@ -1184,7 +1214,12 @@
     }
 
     const rowH = 40;
-    const headH = 48;
+    const showWeekday = els.showWeekday.checked;
+    const shadeWeekend = els.showWeekendShade.checked;
+    const headH = showWeekday ? 66 : 48;
+    const monthBand = 24;
+    const dayBand = 24;
+    const weekdayBand = showWeekday ? 18 : 0;
     const groupH = 28;
     let rowsH = 0;
     const flat = [];
@@ -1259,14 +1294,24 @@
     for (let i = 0; i < days; i += 1) {
       const d = addDays(min, i);
       const x = ox + leftW + i * unit;
-      if (d.getDay() === 0 || d.getDay() === 6) {
+      if (shadeWeekend && (d.getDay() === 0 || d.getDay() === 6)) {
         ctx.fillStyle = "#f5f8fb";
-        ctx.fillRect(x, oy + 24, unit, 24);
+        ctx.fillRect(x, oy + monthBand, unit, dayBand + weekdayBand);
       }
       if (els.zoom.value === "day" || i % 7 === 0) {
         ctx.fillStyle = "#7a8b9a";
         ctx.font = "11px Segoe UI, Microsoft JhengHei, sans-serif";
-        ctx.fillText(String(d.getDate()), x + unit / 2 - 4, oy + 40);
+        const label = String(d.getDate());
+        const tw = ctx.measureText(label).width;
+        ctx.fillText(label, x + unit / 2 - tw / 2, oy + monthBand + 16);
+      }
+      if (showWeekday) {
+        const wd = weekdayLetter(d);
+        const dow = d.getDay();
+        ctx.fillStyle = dow === 0 ? "#c65442" : dow === 6 ? "#9aa8b5" : "#7a8b9a";
+        ctx.font = "650 9px Segoe UI, Microsoft JhengHei, sans-serif";
+        const tw = ctx.measureText(wd).width;
+        ctx.fillText(wd, x + unit / 2 - tw / 2, oy + monthBand + dayBand + 13);
       }
       ctx.strokeStyle = "#d9e1e8";
       ctx.beginPath();
@@ -1308,27 +1353,20 @@
         const span = dayDiff(t.start, t.end);
         const dur = Math.max(1, span + 1);
         const col = colorFor(t.phase);
-        const accent = shade(col, -48);
         const bx = ox + leftW + left;
         const isMilestone = t.type === "Milestone" && span <= 0;
         const w = isMilestone ? Math.max(unit * 0.85, 18) : Math.max(dur * unit - 2, 14);
         // weekend stripes behind bars
         for (let i = 0; i < days; i += 1) {
           const d = addDays(min, i);
-          if (d.getDay() === 0 || d.getDay() === 6) {
+          if (shadeWeekend && (d.getDay() === 0 || d.getDay() === 6)) {
             ctx.fillStyle = "#f5f8fb";
             ctx.fillRect(ox + leftW + i * unit, y, unit, rowH);
           }
         }
         ctx.fillStyle = col;
-        roundRect(ctx, bx, y + 8, w, 24, 6);
+        roundRect(ctx, bx, y + 9, w, 22, 5);
         ctx.fill();
-        ctx.fillStyle = accent;
-        ctx.fillRect(bx, y + 8, 3, 24);
-        ctx.strokeStyle = accent;
-        ctx.lineWidth = 1;
-        roundRect(ctx, bx, y + 8, w, 24, 6);
-        ctx.stroke();
         const range =
           t.end && dayDiff(t.start, t.end) > 0 ? `${fmt(t.start)} → ${fmt(t.end)}` : fmt(t.start);
         let tx = ox + leftW + left + w + 8;
@@ -1429,7 +1467,7 @@
     const file = els.fileInput.files[0];
     if (file) readFile(file);
   });
-  ["filterProject", "filterType", "groupBy", "zoom", "hideNoDate", "clientMode", "showLeftCol", "showToday"].forEach((id) => {
+  ["filterProject", "filterType", "groupBy", "zoom", "hideNoDate", "clientMode", "showLeftCol", "showToday", "showWeekday", "showWeekendShade"].forEach((id) => {
     $(id).addEventListener("change", persistUi);
   });
   document.querySelectorAll("[data-show]").forEach((el) => el.addEventListener("change", persistUi));
