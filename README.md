@@ -10,6 +10,7 @@
 </p>
 
 <p align="center">
+  <a href="https://kanaoda.github.io/NotionGnatt/">Live demo</a> ·
   <a href="https://github.com/Kanaoda/NotionGnatt">GitHub</a> ·
   <a href="https://buymeacoffee.com/kanaoda">Buy Me a Coffee</a> ·
   <a href="https://github.com/sponsors/Kanaoda">Sponsors</a>
@@ -58,9 +59,14 @@ Import your Notion CSV → rebuild a clean **Gantt / timeline** → hide interna
 5. Tweak filters / labels / hide list
 6. Click **Export image** or **Export PDF** (prefer these over browser Print)
 
-### Option B — GitHub Pages (optional)
+### Option B — use online (no download)
 
-After you enable Pages on this repo (`Settings → Pages → Deploy from branch /docs or root`), the app can be opened online without downloading.
+Open the live app:
+
+**https://kanaoda.github.io/NotionGnatt/**
+
+Upload a Notion CSV in the browser and export — same as the local file.
+
 ---
 
 ## Recommended client workflow
