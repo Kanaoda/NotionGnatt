@@ -52,7 +52,7 @@ Import your Notion CSV → rebuild a clean **Gantt / timeline** → hide interna
 
 1. Clone or download this repo  
    `https://github.com/Kanaoda/NotionGnatt`
-2. Open `index.html` in Chrome / Edge / Firefox
+2. Open `NotionGnatt.html` in Chrome / Edge / Firefox
 3. In Notion: database `⋯` → **Export** → **CSV**
 4. Drag the CSV into **Data source**
 5. Tweak filters / labels / hide list
