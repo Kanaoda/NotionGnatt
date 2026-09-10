@@ -1,56 +1,98 @@
-# Notion Timeline Exporter
+<p align="center">
+  <img src="assets/logo.png" alt="NotionGnatt logo" width="96" height="96" />
+</p>
 
-把 Notion 資料庫 CSV 還原成可分享的甘特圖（Gantt / Timeline）。
+<h1 align="center">NotionGnatt</h1>
 
-Notion 原生 Timeline 匯出只有 CSV，會失去顏色、view 設定與視覺排程。這個工具用 CSV 裡仍存在的任務、日期、階段與負責人，重建一份客戶可看的時間軸，並可下載單檔 HTML 或列印成 PDF。
+<p align="center">
+  <strong>Notion Timeline / Gantt → client-ready export</strong><br/>
+  Fix Notion’s broken timeline printing. Turn CSV into a shareable Gantt chart.
+</p>
 
-## 能還原什麼
+<p align="center">
+  <a href="https://github.com/Kanaoda/NotionGnatt">GitHub</a> ·
+  <a href="https://buymeacoffee.com/kanaoda">Buy Me a Coffee</a> ·
+  <a href="https://github.com/sponsors/Kanaoda">Sponsors</a>
+</p>
 
-- 任務名稱、開始/結束日期、工期
-- Phase 分組與配色
-- Type（Milestone / Task / Payment）
-- Project 篩選
-- 負責人（Person / Category）
-- Parent item 階層縮排
+---
 
-無法 100% 複製 Notion 畫面（CSV 沒有 view 顏色、bar 上顯示哪些欄位、dependency 箭頭樣式）。這是「客戶可交付」的甘特圖，不是 Notion 截圖。
+## Why NotionGnatt exists
 
-## 使用
+If you have ever tried to **print**, **PDF-export**, or **screenshot** a Notion **Timeline** / **Gantt-style** board for a client, you already know the pain:
 
-1. 用瀏覽器開啟 `index.html`（不需安裝、不需伺服器）
-2. 在 Notion 資料庫按 `⋯` → Export → CSV
-3. 把 CSV 拖進頁面（內部欄位都進來沒關係）
-4. 勾選「給客戶看的標籤」；取消勾「客戶預覽」後，點左側 👁 排除不想給客戶的任務
-5. 輸出請用：
-   - **完整長圖 PNG**（推薦，一整張不會斬開）
-   - **長圖 → PDF**（用完整圖再開列印另存 PDF）
-   - **客戶 HTML**（互動瀏覽，已套用排除清單）
+- Notion Export → CSV keeps dates, but **drops colors, bar layout, and view settings**
+- Browser print chops a wide timeline into useless pages
+- Full-page screenshots miss the horizontal scroll
+- Clients should not need a Notion seat just to see the schedule
 
-設定（顯示欄位、排除任務、篩選、欄位對應）會存進瀏覽器 localStorage；換新 CSV 後會自動還原。
+**NotionGnatt** was built for that gap.
 
-也可把整個資料夾放到 GitHub Pages / Netlify，讓別人用同一個網頁上傳自己的 CSV。
+Import your Notion CSV → rebuild a clean **Gantt / timeline** → hide internal tasks → export **PNG**, **PDF**, or standalone **HTML** that looks professional enough to send.
 
-## 為什麼不要直接「瀏覽器列印」寬 Timeline
+> Keywords people search: **Notion Gantt**, **Notion Timeline**, **NotionGnatt**, Notion timeline print, Notion gantt export, Notion CSV to Gantt.
 
-瀏覽器會把超寬內容硬拆成多頁，所以會看起來像被斬開。本工具改成先畫出**完整長圖**再存 PDF，避開這個死症。
+---
 
-## Notion 欄位對應
+## Features
 
-工具會自動猜欄位，也可在畫面上手動指定：
+- Import Notion database **CSV** (no server upload — runs in your browser)
+- Rebuild **timeline / Gantt bars** with phase colors
+- Filter by project & type; group by phase or project
+- Customize bar labels, colors, order (drag), and today marker
+- Hide sensitive rows before client delivery
+- Export **full-width image**, **PDF** (via long image), or **interactive HTML**
+- UI: **繁體中文 / English / 日本語**
 
-| 用途 | 常見 Notion 欄位 |
-|------|------------------|
-| 任務名稱 | Task Name, Name, Title |
-| 日期區間 | Urgent, Date, Timeline, Normal Schedule |
-| 階段 | Phase |
-| 類型 | Type |
-| 專案 | Project |
-| 負責人 | Person, Assignee, Category |
-| 工期 | Day |
-| 上層 | Parent item |
+---
 
-日期支援 `2026/09/07 → 2026/09/11`、單一日期、以及 `YYYY-MM-DD`。
+## Quick start
 
-## 授權
+### Option A — open locally
 
-MIT
+1. Clone or download this repo  
+   `https://github.com/Kanaoda/NotionGnatt`
+2. Open `index.html` in Chrome / Edge / Firefox
+3. In Notion: database `⋯` → **Export** → **CSV**
+4. Drag the CSV into **Data source**
+5. Tweak filters / labels / hide list
+6. Click **Export image** or **Export PDF** (prefer these over browser Print)
+
+### Option B — GitHub Pages (optional)
+
+After you enable Pages on this repo (`Settings → Pages → Deploy from branch /docs or root`), the app can be opened online without downloading.
+---
+
+## Recommended client workflow
+
+1. Filter to the project the client should see  
+2. Turn on **Preview as client** after hiding internal milestones / payments  
+3. Export **PNG** for Slack / email, or **PDF** for contracts  
+4. Optional: export **HTML** if the client needs to scroll a long timeline
+
+**Tip:** Do not rely on the browser’s Print dialog for wide timelines. NotionGnatt’s image/PDF path is designed so the chart is **not cut mid-bar**.
+
+---
+
+## Privacy
+
+All parsing happens **locally in your browser**. Your CSV is not uploaded to a NotionGnatt server.
+
+Settings (mapping, hide list, colors, order) are stored in `localStorage` on your machine.
+
+---
+
+## Support the project
+
+If NotionGnatt saved you a painful client delivery:
+
+- [Buy Me a Coffee](https://buymeacoffee.com/kanaoda)
+- [GitHub Sponsors](https://github.com/sponsors/Kanaoda)
+
+---
+
+## License & copyright
+
+MIT License · © 2026 [Kanaoda](https://github.com/Kanaoda)
+
+Product name: **NotionGnatt** (intentional spelling).

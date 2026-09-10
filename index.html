@@ -3,119 +3,145 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Timelinify — Notion 時間軸交付工具</title>
+  <title>NotionGnatt — Notion 時間軸交付工具</title>
+  <link rel="icon" href="assets/logo.png" type="image/png" />
   <link rel="stylesheet" href="assets/styles.css" />
 </head>
 <body>
   <aside class="sidebar">
     <div class="brand">
-      <span class="logo" aria-hidden="true">T</span>
+      <img class="logo" src="assets/logo.png" width="40" height="40" alt="NotionGnatt" />
       <div class="brand-text">
-        <strong>Timelinify</strong>
-        <span>Notion 時間軸 → 客戶交付</span>
+        <strong>NotionGnatt</strong>
+        <span data-i18n="brandTag">Notion 時間軸 → 客戶交付</span>
       </div>
     </div>
 
+    <section class="panel lang-panel">
+      <h2 class="panel-title" data-i18n="language">語言</h2>
+      <div class="lang-switch" role="group" aria-label="Language">
+        <button type="button" class="lang-btn" data-lang="zh-Hant">中文</button>
+        <button type="button" class="lang-btn" data-lang="en">EN</button>
+        <button type="button" class="lang-btn" data-lang="ja">日本語</button>
+      </div>
+    </section>
+
     <section class="panel" id="panelData">
-      <h2 class="panel-title">資料來源</h2>
+      <h2 class="panel-title" data-i18n="dataSource">資料來源</h2>
       <div class="dropzone" id="dropzone">
         <input type="file" id="fileInput" accept=".csv,text/csv" hidden />
-        <p class="dz-main">拖放 Notion 匯出的 CSV</p>
-        <p class="dz-sub">或 <button type="button" id="btnBrowse" class="link">瀏覽檔案</button> · <button type="button" id="btnSample" class="link">試用範例</button></p>
+        <p class="dz-main" data-i18n="dropMain">拖放 Notion 匯出的 CSV</p>
+        <p class="dz-sub"><span data-i18n="dropOr">或</span> <button type="button" id="btnBrowse" class="link" data-i18n="browse">選擇檔案上傳</button></p>
       </div>
       <p class="file-name hidden" id="fileName"></p>
     </section>
 
     <section class="panel hidden" id="toolbar">
-      <h2 class="panel-title">檢視範圍</h2>
+      <h2 class="panel-title" data-i18n="viewScope">檢視範圍</h2>
       <div class="field">
-        <span class="field-label">專案</span>
+        <span class="field-label" data-i18n="project">專案</span>
         <select id="filterProject"></select>
       </div>
       <div class="field">
-        <span class="field-label">項目類型</span>
+        <span class="field-label" data-i18n="itemType">項目類型</span>
         <select id="filterType"></select>
       </div>
       <div class="field-row">
         <div class="field">
-          <span class="field-label">分組方式</span>
+          <span class="field-label" data-i18n="groupBy">分組方式</span>
           <select id="groupBy">
-            <option value="phase">依階段</option>
-            <option value="project">依專案</option>
-            <option value="none">不分組</option>
+            <option value="phase" data-i18n="groupPhase">依階段</option>
+            <option value="project" data-i18n="groupProject">依專案</option>
+            <option value="none" data-i18n="groupNone">不分組</option>
           </select>
         </div>
         <div class="field">
-          <span class="field-label">時間刻度</span>
+          <span class="field-label" data-i18n="zoom">時間刻度</span>
           <select id="zoom">
-            <option value="day" selected>日</option>
-            <option value="week">週</option>
-            <option value="month">月</option>
+            <option value="day" selected data-i18n="zoomDay">日</option>
+            <option value="week" data-i18n="zoomWeek">週</option>
+            <option value="month" data-i18n="zoomMonth">月</option>
           </select>
         </div>
       </div>
       <label class="switch">
         <input type="checkbox" id="hideNoDate" checked />
-        <span>略過未排期的項目</span>
+        <span data-i18n="hideNoDate">略過未排期的項目</span>
       </label>
     </section>
 
     <section class="panel hidden" id="displayBar">
-      <h2 class="panel-title">時間條標籤</h2>
-      <p class="panel-hint">選擇要顯示在時間條旁的資訊</p>
+      <h2 class="panel-title" data-i18n="barLabels">時間條標籤</h2>
+      <p class="panel-hint" data-i18n="barLabelsHint">選擇要顯示在時間條旁的資訊</p>
       <div class="chip-group">
-        <label class="chip"><input type="checkbox" data-show="name" checked /><span>任務名稱</span></label>
-        <label class="chip"><input type="checkbox" data-show="dates" checked /><span>日期區間</span></label>
-        <label class="chip"><input type="checkbox" data-show="person" /><span>負責人</span></label>
-        <label class="chip"><input type="checkbox" data-show="duration" /><span>工期</span></label>
-        <label class="chip"><input type="checkbox" data-show="phase" /><span>階段</span></label>
-        <label class="chip"><input type="checkbox" data-show="type" /><span>類型</span></label>
-        <label class="chip"><input type="checkbox" data-show="note" /><span>備註</span></label>
+        <label class="chip"><input type="checkbox" data-show="name" checked /><span data-i18n="labelName">任務名稱</span></label>
+        <label class="chip"><input type="checkbox" data-show="dates" checked /><span data-i18n="labelDates">日期區間</span></label>
+        <label class="chip"><input type="checkbox" data-show="person" /><span data-i18n="labelPerson">負責人</span></label>
+        <label class="chip"><input type="checkbox" data-show="duration" /><span data-i18n="labelDuration">工期</span></label>
+        <label class="chip"><input type="checkbox" data-show="phase" /><span data-i18n="labelPhase">階段</span></label>
+        <label class="chip"><input type="checkbox" data-show="type" /><span data-i18n="labelType">類型</span></label>
+        <label class="chip"><input type="checkbox" data-show="note" /><span data-i18n="labelNote">備註</span></label>
       </div>
       <label class="switch">
         <input type="checkbox" id="showLeftCol" checked />
-        <span>顯示左側任務清單</span>
+        <span data-i18n="showLeftCol">顯示左側任務清單</span>
       </label>
+      <label class="switch">
+        <input type="checkbox" id="showToday" checked />
+        <span data-i18n="showToday">顯示今日紅線</span>
+      </label>
+      <p class="panel-hint" data-i18n="orderHint">拖拉左側把手可調整分組／任務順序，會自動記住。</p>
+      <button type="button" id="btnResetOrder" class="link reset-order" data-i18n="resetOrder">重設為 CSV 順序</button>
     </section>
 
     <section class="panel hidden" id="privacy">
-      <h2 class="panel-title">交付前檢查</h2>
+      <h2 class="panel-title" data-i18n="deliveryCheck">交付前檢查</h2>
       <label class="switch">
         <input type="checkbox" id="clientMode" />
-        <span>以客戶視角預覽</span>
+        <span data-i18n="clientPreview">以客戶視角預覽</span>
       </label>
-      <p class="panel-hint">將滑鼠移到圖表左側的任務上，按「隱藏」即可將敏感項目排除在交付內容之外。</p>
+      <p class="panel-hint" data-i18n="hideHint">將滑鼠移到圖表左側的任務上，按「隱藏」即可將敏感項目排除在交付內容之外。</p>
       <div class="exclude-head">
-        <span id="excludeStat">尚未隱藏任何項目</span>
-        <button type="button" id="btnClearExclude" class="link">全部恢復</button>
+        <span id="excludeStat" data-i18n="excludeNone">尚未隱藏任何項目</span>
+        <button type="button" id="btnClearExclude" class="link" data-i18n="restoreAll">全部恢復</button>
       </div>
       <div class="exclude-list" id="excludeList"></div>
     </section>
 
     <section class="panel hidden" id="mapping">
       <details>
-        <summary>進階設定：欄位對應</summary>
-        <p class="panel-hint map-hint">系統已自動辨識各欄位用途；只有在日期或名稱抓錯欄時才需要調整。</p>
+        <summary data-i18n="mappingSummary">進階設定：欄位對應</summary>
+        <p class="panel-hint map-hint" data-i18n="mappingHint">系統已自動辨識各欄位用途；只有在日期或名稱抓錯欄時才需要調整。</p>
         <div class="map-grid" id="mapGrid"></div>
       </details>
     </section>
 
     <footer class="sidebar-foot">
-      <p>資料只在你的瀏覽器處理，不會上傳。</p>
-      <p>所有設定自動儲存，下次匯入即還原。</p>
+      <p class="foot-copy">© 2026 <strong>Kanaoda</strong> · NotionGnatt</p>
+      <p class="foot-links">
+        <a href="https://github.com/Kanaoda/NotionGnatt" target="_blank" rel="noopener noreferrer" data-i18n="footGithub">GitHub</a>
+        <span class="foot-sep" aria-hidden="true">·</span>
+        <a href="https://buymeacoffee.com/kanaoda" target="_blank" rel="noopener noreferrer" data-i18n="footSupport">Support</a>
+        <span class="foot-sep" aria-hidden="true">·</span>
+        <a href="https://github.com/sponsors/Kanaoda" target="_blank" rel="noopener noreferrer" data-i18n="footSponsor">Sponsors</a>
+      </p>
+      <p class="foot-privacy" data-i18n="footPrivacy">資料只在瀏覽器處理，不會上傳。</p>
     </footer>
   </aside>
 
   <main class="workspace">
     <header class="ws-head">
       <div class="ws-title">
-        <h1 id="wsTitle">時間軸預覽</h1>
+        <div class="ws-title-main">
+          <h1 id="wsTitle" data-i18n="previewTitle">時間軸預覽</h1>
+          <p id="wsSubtitle" class="ws-subtitle"></p>
+        </div>
         <span class="stat" id="stat"></span>
       </div>
       <div class="ws-actions">
-        <button type="button" id="btnHtml" class="btn" disabled title="互動式網頁，可捲動瀏覽">匯出網頁</button>
-        <button type="button" id="btnPdf" class="btn" disabled title="以完整長圖轉存 PDF，不會被分頁切斷">匯出 PDF</button>
-        <button type="button" id="btnPng" class="btn primary" disabled title="單張完整圖片，適合直接傳送">匯出圖片</button>
+        <button type="button" id="btnHtml" class="btn" disabled data-i18n="exportHtml" data-i18n-title="exportHtmlTitle" title="互動式網頁，可捲動瀏覽">匯出網頁</button>
+        <button type="button" id="btnPdf" class="btn" disabled data-i18n="exportPdf" data-i18n-title="exportPdfTitle" title="以完整長圖轉存 PDF，不會被分頁切斷">匯出 PDF</button>
+        <button type="button" id="btnPng" class="btn primary" disabled data-i18n="exportPng" data-i18n-title="exportPngTitle" title="單張完整圖片，適合直接傳送">匯出圖片</button>
       </div>
     </header>
 
@@ -125,17 +151,18 @@
 
     <div class="empty-state" id="empty">
       <div class="empty-card">
-        <h2>三步驟，把 Notion 時間軸變成客戶能看的甘特圖</h2>
+        <h2 data-i18n="emptyTitle">把 Notion 時間軸變成客戶能看的甘特圖</h2>
         <ol>
-          <li><strong>匯出</strong> — 在 Notion 資料庫按「⋯ → Export → CSV」</li>
-          <li><strong>匯入</strong> — 把 CSV 拖進左側「資料來源」</li>
-          <li><strong>交付</strong> — 隱藏內部項目後，匯出圖片、PDF 或網頁</li>
+          <li><strong data-i18n="emptyStep1">匯出</strong><span data-i18n="emptyStep1Body"> — 在 Notion 資料庫按「⋯ → Export → CSV」</span></li>
+          <li><strong data-i18n="emptyStep2">匯入</strong><span data-i18n="emptyStep2Body"> — 上傳 CSV 到左側「資料來源」</span></li>
+          <li><strong data-i18n="emptyStep3">交付</strong><span data-i18n="emptyStep3Body"> — 隱藏內部項目後，匯出圖片、PDF 或網頁</span></li>
         </ol>
-        <button type="button" id="btnSampleEmpty" class="btn primary">先用範例資料試試</button>
+        <button type="button" id="btnUploadEmpty" class="btn primary" data-i18n="emptyCta">上傳 Notion CSV</button>
       </div>
     </div>
   </main>
 
+  <script src="assets/i18n.js"></script>
   <script src="assets/app.js"></script>
 </body>
 </html>
