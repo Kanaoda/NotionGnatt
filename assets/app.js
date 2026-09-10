@@ -1,17 +1,85 @@
 (function () {
-  const STORAGE_KEY = "notion-timeline-exporter-v2";
-  const ROLES = [
-    ["name", "任務名稱"],
-    ["dates", "日期區間"],
-    ["phase", "階段 Phase"],
-    ["type", "類型 Type"],
-    ["project", "專案"],
-    ["person", "負責人"],
-    ["duration", "工期"],
-    ["parent", "上層任務"],
-    ["note", "備註"]
+  const STORAGE_KEY = "notiongnatt-prefs-v3";
+  const ROLE_KEYS = [
+    ["name", "roleName"],
+    ["dates", "roleDates"],
+    ["phase", "rolePhase"],
+    ["type", "roleType"],
+    ["project", "roleProject"],
+    ["person", "rolePerson"],
+    ["duration", "roleDuration"],
+    ["parent", "roleParent"],
+    ["note", "roleNote"]
   ];
+  const I18N = window.TIMELINIFY_I18N || {};
 
+  function detectLang() {
+    const prefs = (() => {
+      try {
+        return JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
+      } catch {
+        return {};
+      }
+    })();
+    if (prefs.lang && I18N[prefs.lang]) return prefs.lang;
+    const nav = (navigator.language || "zh-Hant").toLowerCase();
+    if (nav.startsWith("ja")) return "ja";
+    if (nav.startsWith("en")) return "en";
+    if (nav.startsWith("zh")) return "zh-Hant";
+    return "zh-Hant";
+  }
+
+  let lang = detectLang();
+
+  function tr(key, vars) {
+    const dict = I18N[lang] || I18N["zh-Hant"] || {};
+    let s = dict[key] != null ? dict[key] : (I18N["zh-Hant"] && I18N["zh-Hant"][key]) || key;
+    if (vars) {
+      Object.keys(vars).forEach((k) => {
+        s = s.replace(new RegExp(`\\{${k}\\}`, "g"), String(vars[k]));
+      });
+    }
+    return s;
+  }
+
+  function applyStaticI18n() {
+    document.documentElement.lang = lang === "zh-Hant" ? "zh-Hant" : lang;
+    document.title = tr("docTitle");
+    document.querySelectorAll("[data-i18n]").forEach((el) => {
+      if (el.id === "wsTitle" && state.headers.length) return;
+      const key = el.getAttribute("data-i18n");
+      if (key) el.textContent = tr(key);
+    });
+    document.querySelectorAll("[data-i18n-title]").forEach((el) => {
+      const key = el.getAttribute("data-i18n-title");
+      if (key) el.setAttribute("title", tr(key));
+    });
+    document.querySelectorAll(".lang-btn").forEach((btn) => {
+      btn.classList.toggle("active", btn.dataset.lang === lang);
+    });
+    if (state.headers.length) {
+      const dated = state.tasks.filter((t) => t.start);
+      updateWorkspaceHeader(
+        els.filterProject ? visibleTasks(els.clientMode && els.clientMode.checked).filter((t) => t.start) : dated
+      );
+    }
+  }
+
+  function setLang(next) {
+    if (!I18N[next]) return;
+    lang = next;
+    const prefs = loadPrefs();
+    prefs.lang = lang;
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(prefs));
+    applyStaticI18n();
+    if (state.headers.length) {
+      fillFilters(true);
+      renderMapping();
+      render();
+    }
+  }
+
+  // Notion-like soft phase fills (client-delivery look). Named phases first.
   const PHASE_COLORS = {
     Pitching: "#f3c6c6",
     Kickoff: "#f0d0a8",
@@ -27,8 +95,25 @@
     Maintenance: "#cfc8be",
     "Fab-Sampling": "#e8c9a0",
     "Fab-Production": "#e0b98a",
-    "Fab-Site Work": "#d7ae7c"
+    "Fab-Site Work": "#d7ae7c",
+    Ungrouped: "#c8d4e0"
   };
+  // Fallback categorical palette for unknown phases — vivid but printable
+  const PALETTE = [
+    "#9ec9e8",
+    "#a8d5c2",
+    "#f0c9a0",
+    "#cbb8e8",
+    "#f0b4b4",
+    "#b8d4a8",
+    "#9fd4d0",
+    "#e8c47a",
+    "#b0c4de",
+    "#d4a8c4",
+    "#a8c0e0",
+    "#c9d4a0"
+  ];
+  const phaseColorMap = new Map();
 
   const state = {
     headers: [],
@@ -36,6 +121,8 @@
     mapping: {},
     tasks: [],
     excluded: new Set(),
+    order: { groups: [], tasks: [] },
+    colors: {},
     filtersReady: false,
     schemaKey: ""
   };
@@ -61,6 +148,7 @@
     hideNoDate: $("hideNoDate"),
     clientMode: $("clientMode"),
     showLeftCol: $("showLeftCol"),
+    showToday: $("showToday"),
     displayBar: $("displayBar"),
     btnHtml: $("btnHtml"),
     btnPng: $("btnPng"),
@@ -93,21 +181,28 @@
     prefs.global = {
       show,
       showLeftCol: els.showLeftCol.checked,
+      showToday: els.showToday.checked,
       groupBy: els.groupBy.value,
       zoom: els.zoom.value,
       hideNoDate: els.hideNoDate.checked,
       clientMode: els.clientMode.checked
     };
+    prefs.lang = lang;
     if (state.schemaKey) {
       prefs.schemas = prefs.schemas || {};
       prefs.schemas[state.schemaKey] = {
         mapping: { ...state.mapping },
         filterProject: els.filterProject.value,
         filterType: els.filterType.value,
-        excluded: [...state.excluded]
+        excluded: [...state.excluded],
+        order: {
+          groups: [...state.order.groups],
+          tasks: [...state.order.tasks]
+        },
+        colors: { ...state.colors }
       };
     }
-    prefs.excludedByName = [...new Set([...(prefs.excludedByName || []), ...state.excluded])];
+    delete prefs.excludedByName;
     localStorage.setItem(STORAGE_KEY, JSON.stringify(prefs));
   }
 
@@ -122,6 +217,7 @@
       });
     }
     if (typeof g.showLeftCol === "boolean") els.showLeftCol.checked = g.showLeftCol;
+    if (typeof g.showToday === "boolean") els.showToday.checked = g.showToday;
     if (g.groupBy) els.groupBy.value = g.groupBy;
     if (g.zoom) els.zoom.value = g.zoom;
     if (typeof g.hideNoDate === "boolean") els.hideNoDate.checked = g.hideNoDate;
@@ -249,7 +345,7 @@
   function autoMap(headers, rows) {
     const mapping = {};
     const used = new Set();
-    for (const [role] of ROLES) {
+    for (const [role] of ROLE_KEYS) {
       let best = "";
       let bestScore = 0;
       for (const h of headers) {
@@ -288,12 +384,46 @@
     return { headers, rows };
   }
 
+  function buildColorMap() {
+    phaseColorMap.clear();
+    const seen = [];
+    for (const t of state.tasks) {
+      const key = t.phase || "Ungrouped";
+      if (!seen.includes(key)) seen.push(key);
+    }
+    seen.forEach((phase, i) => {
+      const custom = state.colors && state.colors[phase];
+      const named = PHASE_COLORS[phase];
+      phaseColorMap.set(phase, custom || named || PALETTE[i % PALETTE.length]);
+    });
+  }
+
   function colorFor(phase) {
-    if (PHASE_COLORS[phase]) return PHASE_COLORS[phase];
+    const key = phase || "Ungrouped";
+    if (state.colors && state.colors[key]) return state.colors[key];
+    if (phaseColorMap.has(key)) return phaseColorMap.get(key);
+    if (PHASE_COLORS[key]) {
+      phaseColorMap.set(key, PHASE_COLORS[key]);
+      return PHASE_COLORS[key];
+    }
     let hash = 0;
-    for (const ch of phase) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
-    const hues = [12, 28, 48, 160, 200, 250, 280];
-    return `hsl(${hues[hash % hues.length]} 45% 78%)`;
+    for (const ch of key) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
+    const col = PALETTE[hash % PALETTE.length];
+    phaseColorMap.set(key, col);
+    return col;
+  }
+
+  function shade(hex, amt) {
+    const m = /^#?([0-9a-f]{6})$/i.exec(hex);
+    if (!m) return hex;
+    const n = parseInt(m[1], 16);
+    let r = (n >> 16) & 255;
+    let g = (n >> 8) & 255;
+    let b = n & 255;
+    r = Math.max(0, Math.min(255, Math.round(r + amt)));
+    g = Math.max(0, Math.min(255, Math.round(g + amt)));
+    b = Math.max(0, Math.min(255, Math.round(b + amt)));
+    return `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`;
   }
 
   function addDays(d, n) {
@@ -356,6 +486,7 @@
         };
       })
       .filter((t) => t.name);
+    buildColorMap();
   }
 
   function shownFields() {
@@ -392,11 +523,11 @@
     const prevProject = els.filterProject.value;
     const prevType = els.filterType.value;
     els.filterProject.innerHTML =
-      `<option value="__all__">全部專案</option>` +
+      `<option value="__all__">${escapeHtml(tr("allProjects"))}</option>` +
       projects.map((v) => `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join("");
-    const typeOpts = [`<option value="__all__">全部類型</option>`];
-    if (types.some((t) => t === "Milestone" || t === "Task")) {
-      typeOpts.push(`<option value="__work__">Milestone + Task</option>`);
+    const typeOpts = [`<option value="__all__">${escapeHtml(tr("allTypes"))}</option>`];
+    if (types.some((ty) => ty === "Milestone" || ty === "Task")) {
+      typeOpts.push(`<option value="__work__">${escapeHtml(tr("workTypes"))}</option>`);
     }
     typeOpts.push(...types.map((v) => `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`));
     els.filterType.innerHTML = typeOpts.join("");
@@ -429,8 +560,8 @@
   }
 
   function renderMapping() {
-    els.mapGrid.innerHTML = ROLES.map(([role, label]) => {
-      const opts = [`<option value="">（不使用）</option>`]
+    els.mapGrid.innerHTML = ROLE_KEYS.map(([role, labelKey]) => {
+      const opts = [`<option value="">${escapeHtml(tr("unused"))}</option>`]
         .concat(
           state.headers.map(
             (h) =>
@@ -438,7 +569,7 @@
           )
         )
         .join("");
-      return `<label>${escapeHtml(label)}<select data-role="${role}">${opts}</select></label>`;
+      return `<label>${escapeHtml(tr(labelKey))}<select data-role="${role}">${opts}</select></label>`;
     }).join("");
     els.mapGrid.querySelectorAll("select").forEach((sel) => {
       sel.addEventListener("change", () => {
@@ -447,18 +578,18 @@
         fillFilters(true);
         savePrefs();
         render();
-        toast("欄位對應已更新");
+        toast(tr("toastMapping"));
       });
     });
   }
 
   function renderExcludeList() {
     const names = [...state.excluded].sort();
-    els.excludeStat.textContent = names.length ? `已隱藏 ${names.length} 個項目` : "尚未隱藏任何項目";
+    els.excludeStat.textContent = names.length ? tr("excludeCount", { n: names.length }) : tr("excludeNone");
     els.excludeList.innerHTML = names
       .map((key) => {
         const label = key.includes("::") ? key.split("::").slice(1).join("::") : key;
-        return `<span class="exclude-chip"><span class="x-name" title="${escapeHtml(label)}">${escapeHtml(label)}</span><button type="button" data-restore="${escapeHtml(key)}" title="恢復顯示">×</button></span>`;
+        return `<span class="exclude-chip"><span class="x-name" title="${escapeHtml(label)}">${escapeHtml(label)}</span><button type="button" data-restore="${escapeHtml(key)}" title="${escapeHtml(tr("restoreOne"))}">×</button></span>`;
       })
       .join("");
     els.excludeList.querySelectorAll("[data-restore]").forEach((btn) => {
@@ -472,22 +603,74 @@
 
   function groupTasks(tasks) {
     const mode = els.groupBy.value;
-    if (mode === "none") return [{ key: "", items: tasks }];
+    // Preserve CSV / Notion export row order by default (not date sort)
+    const ordered = tasks.slice().sort((a, b) => a.id - b.id);
+    if (mode === "none") {
+      const g = { key: "", items: ordered };
+      ensureOrderSeed([g]);
+      g.items = sortByCustomOrder(g.items, state.order.tasks, (t) => String(t.id));
+      return [g];
+    }
     const map = new Map();
-    for (const t of tasks) {
+    for (const t of ordered) {
       const key = mode === "project" ? t.project : t.phase;
       if (!map.has(key)) map.set(key, []);
       map.get(key).push(t);
     }
-    return [...map.entries()].map(([key, items]) => {
-      items.sort((a, b) => {
-        if (a.start && b.start) return a.start - b.start || a.name.localeCompare(b.name);
-        if (a.start) return -1;
-        if (b.start) return 1;
-        return a.name.localeCompare(b.name);
-      });
-      return { key, items };
+    let groups = [...map.entries()].map(([key, items]) => ({ key, items }));
+    ensureOrderSeed(groups);
+    groups = sortByCustomOrder(groups, state.order.groups, (g) => g.key);
+    for (const g of groups) {
+      g.items = sortByCustomOrder(g.items, state.order.tasks, (t) => String(t.id));
+    }
+    return groups;
+  }
+
+  function ensureOrderSeed(groups) {
+    if (!state.order) state.order = { groups: [], tasks: [] };
+    if (!Array.isArray(state.order.groups)) state.order.groups = [];
+    if (!Array.isArray(state.order.tasks)) state.order.tasks = [];
+
+    const keys = groups.map((g) => g.key).filter(Boolean);
+    if (!state.order.groups.length) {
+      state.order.groups = keys.slice();
+    } else {
+      for (const k of keys) {
+        if (!state.order.groups.includes(k)) state.order.groups.push(k);
+      }
+      state.order.groups = state.order.groups.filter((k) => keys.includes(k));
+    }
+
+    const ids = groups.flatMap((g) => g.items.map((t) => String(t.id)));
+    if (!state.order.tasks.length) {
+      state.order.tasks = ids.slice();
+    } else {
+      for (const id of ids) {
+        if (!state.order.tasks.includes(id)) state.order.tasks.push(id);
+      }
+      const idSet = new Set(ids);
+      state.order.tasks = state.order.tasks.filter((id) => idSet.has(id));
+    }
+  }
+
+  function sortByCustomOrder(list, order, keyFn) {
+    return list.slice().sort((a, b) => {
+      const ia = order.indexOf(keyFn(a));
+      const ib = order.indexOf(keyFn(b));
+      if (ia === -1 && ib === -1) return 0;
+      if (ia === -1) return 1;
+      if (ib === -1) return -1;
+      return ia - ib;
     });
+  }
+
+  function moveInOrder(arr, fromKey, toKey) {
+    const from = arr.indexOf(fromKey);
+    const to = arr.indexOf(toKey);
+    if (from < 0 || to < 0 || from === to) return false;
+    arr.splice(from, 1);
+    arr.splice(to, 0, fromKey);
+    return true;
   }
 
   function pxPerDay() {
@@ -506,7 +689,22 @@
     max = addDays(max, 2);
     const days = dayDiff(min, max) + 1;
     const unit = pxPerDay();
-    const labelPad = 460;
+    const show = shownFields();
+    // Adaptive right padding so the longest bar label is never clipped.
+    let maxLabel = 0;
+    for (const t of tasks) {
+      if (!t.start) continue;
+      let len = 0;
+      if (show.name) len += (t.name || "").length + 2;
+      if (show.dates) len += 26;
+      if (show.person && t.person) len += t.person.split(",")[0].length + 3;
+      if (show.duration && t.duration) len += t.duration.length + 2;
+      if (show.phase && t.phase) len += t.phase.length + 2;
+      if (show.type && t.type) len += t.type.length + 2;
+      if (show.note && t.note) len += Math.min(t.note.length, 24) + 2;
+      maxLabel = Math.max(maxLabel, len);
+    }
+    const labelPad = Math.min(1000, Math.max(360, Math.round(maxLabel * 7.6) + 60));
     const leftW = els.showLeftCol.checked ? 300 : 0;
     const chartW = days * unit + labelPad;
     return {
@@ -520,7 +718,7 @@
       leftW,
       chartW,
       groups: groupTasks(tasks),
-      show: shownFields()
+      show
     };
   }
 
@@ -536,18 +734,184 @@
     return bits.join("");
   }
 
+  function weekendGridHtml(days, min, unit) {
+    const parts = [];
+    for (let i = 0; i < days; i += 1) {
+      const d = addDays(min, i);
+      if (d.getDay() === 0 || d.getDay() === 6) {
+        parts.push(`<div class="grid-weekend" style="left:${i * unit}px;width:${unit}px"></div>`);
+      }
+      if (els.zoom.value === "day" || i % 7 === 0) {
+        parts.push(`<div class="grid-line" style="left:${i * unit}px"></div>`);
+      }
+    }
+    return parts.join("");
+  }
+
+  function barMarkup(task, min, unit, show) {
+    if (!task.start) return "";
+    const left = dayDiff(min, task.start) * unit;
+    const span = dayDiff(task.start, task.end);
+    const dur = Math.max(1, span + 1);
+    const col = colorFor(task.phase);
+    const accent = shade(col, -48);
+    const isPayment = task.type === "Payment-In" || /payment/i.test(task.type);
+    const isMilestone = task.type === "Milestone" && span <= 0;
+    const range = task.end && span > 0 ? `${fmt(task.start)} → ${fmt(task.end)}` : fmt(task.start);
+    // Always render a full rounded bar (Notion-like). Milestones get a short pill, not a clipped diamond.
+    const w = isMilestone ? Math.max(unit * 0.85, 18) : Math.max(dur * unit - 2, 14);
+    const cls = ["bar", isMilestone ? "milestone" : "", isPayment ? "payment" : ""].filter(Boolean).join(" ");
+    const shape = `<div class="${cls}" style="width:${w}px;background:${col};border-color:${accent};box-shadow:inset 3px 0 0 ${accent}, inset 0 1px 0 rgba(255,255,255,.35), 0 1px 2px rgba(17,51,79,.12)"></div>`;
+    return `<div class="item" style="left:${left}px">
+      ${shape}
+      <div class="bar-label">${labelBits(task, show, range)}</div>
+    </div>`;
+  }
+
+  function bindDrag() {
+    if (els.clientMode.checked) return;
+    const root = els.gantt;
+
+    root.querySelectorAll("[data-drag-handle]").forEach((handle) => {
+      handle.addEventListener("dragstart", (e) => {
+        const row = handle.closest(".drop-target");
+        if (!row) return;
+        const kind = handle.dataset.dragHandle;
+        if (kind === "group") {
+          state.drag = { kind: "group", key: row.dataset.dragGroup };
+          e.dataTransfer.setData("text/plain", row.dataset.dragGroup || "");
+        } else {
+          state.drag = { kind: "task", id: row.dataset.dragTask };
+          e.dataTransfer.setData("text/plain", row.dataset.dragTask || "");
+        }
+        row.classList.add("dragging");
+        e.dataTransfer.effectAllowed = "move";
+      });
+      handle.addEventListener("dragend", () => {
+        state.drag = null;
+        root.querySelectorAll(".dragging, .drag-over").forEach((n) => {
+          n.classList.remove("dragging", "drag-over");
+        });
+      });
+    });
+
+    root.querySelectorAll(".drop-target[data-drag-group]").forEach((el) => {
+      el.addEventListener("dragover", (e) => {
+        if (!state.drag || state.drag.kind !== "group") return;
+        e.preventDefault();
+        el.classList.add("drag-over");
+      });
+      el.addEventListener("dragleave", () => el.classList.remove("drag-over"));
+      el.addEventListener("drop", (e) => {
+        e.preventDefault();
+        el.classList.remove("drag-over");
+        if (!state.drag || state.drag.kind !== "group") return;
+        if (moveInOrder(state.order.groups, state.drag.key, el.dataset.dragGroup)) {
+          savePrefs();
+          render();
+        }
+      });
+    });
+
+    root.querySelectorAll(".drop-target[data-drag-task]").forEach((el) => {
+      el.addEventListener("dragover", (e) => {
+        if (!state.drag || state.drag.kind !== "task") return;
+        e.preventDefault();
+        el.classList.add("drag-over");
+      });
+      el.addEventListener("dragleave", () => el.classList.remove("drag-over"));
+      el.addEventListener("drop", (e) => {
+        e.preventDefault();
+        el.classList.remove("drag-over");
+        if (!state.drag || state.drag.kind !== "task") return;
+        if (moveInOrder(state.order.tasks, state.drag.id, el.dataset.dragTask)) {
+          savePrefs();
+          render();
+        }
+      });
+    });
+  }
+
+  function phaseLegendHtml(groups) {
+    const keys = [];
+    const seen = new Set();
+    for (const g of groups) {
+      for (const t of g.items) {
+        const p = t.phase || "Ungrouped";
+        if (seen.has(p)) continue;
+        seen.add(p);
+        keys.push(p);
+      }
+    }
+    if (!keys.length) return "";
+    const canEdit = !els.clientMode.checked;
+    return `<div class="phase-legend">
+      <span class="legend-hint">${escapeHtml(tr(canEdit ? "legendColorHint" : "legendTitle"))}</span>
+      ${keys
+        .map((key) => {
+          const c = colorFor(key);
+          if (!canEdit) {
+            return `<span class="phase-chip"><i style="background:${c};border-color:${shade(c, -40)}"></i>${escapeHtml(key)}</span>`;
+          }
+          return `<label class="phase-chip editable" title="${escapeHtml(tr("legendColorPick"))}">
+            <input type="color" class="phase-color-input" value="${c}" data-color-key="${escapeHtml(key)}" />
+            <i style="background:${c};border-color:${shade(c, -40)}"></i>
+            <span>${escapeHtml(key)}</span>
+          </label>`;
+        })
+        .join("")}
+      ${canEdit && Object.keys(state.colors).length
+        ? `<button type="button" class="link legend-reset" id="btnResetColors">${escapeHtml(tr("resetColors"))}</button>`
+        : ""}
+    </div>`;
+  }
+
+  function bindLegendColors() {
+    els.gantt.querySelectorAll(".phase-color-input").forEach((input) => {
+      input.addEventListener("input", () => {
+        const key = input.dataset.colorKey;
+        if (!key) return;
+        state.colors[key] = input.value;
+        phaseColorMap.set(key, input.value);
+        // Live-update swatch without full re-render for snappy feel
+        const swatch = input.parentElement && input.parentElement.querySelector("i");
+        if (swatch) {
+          swatch.style.background = input.value;
+          swatch.style.borderColor = shade(input.value, -40);
+        }
+      });
+      input.addEventListener("change", () => {
+        savePrefs();
+        render();
+      });
+    });
+    const reset = $("btnResetColors");
+    if (reset) {
+      reset.addEventListener("click", () => {
+        state.colors = {};
+        buildColorMap();
+        savePrefs();
+        render();
+        toast(tr("toastColorsReset"));
+      });
+    }
+  }
+
   function render() {
     const model = layoutModel(false);
     const { tasks, dated, min, days, unit, chartW, groups, show } = model;
+    updateWorkspaceHeader(dated);
     const excludedInFilter = filteredPool().filter((t) => state.excluded.has(taskKey(t))).length;
     els.stat.textContent = els.clientMode.checked
-      ? `客戶視角 · ${tasks.length} 個項目${excludedInFilter ? `（另有 ${excludedInFilter} 個已隱藏）` : ""}`
-      : `${tasks.length} 個項目 · ${dated.length} 個已排期${excludedInFilter ? ` · ${excludedInFilter} 個交付時隱藏` : ""}`;
+      ? tr("statClient", { n: tasks.length }) +
+        (excludedInFilter ? tr("statClientExtra", { h: excludedInFilter }) : "")
+      : tr("statInternal", { n: tasks.length, d: dated.length }) +
+        (excludedInFilter ? tr("statInternalExtra", { h: excludedInFilter }) : "");
 
     renderExcludeList();
 
     if (!tasks.length) {
-      els.gantt.innerHTML = `<div style="padding:32px;color:#8a857a;font-size:13px">目前的篩選條件下沒有項目。請調整左側「檢視範圍」。</div>`;
+      els.gantt.innerHTML = `<div style="padding:32px;color:#8a857a;font-size:13px">${escapeHtml(tr("noItems"))}</div>`;
       return;
     }
 
@@ -574,15 +938,17 @@
     const today = startOfDay(new Date());
     const todayOffset = dayDiff(min, today);
     const todayLine =
-      todayOffset >= 0 && todayOffset <= days
+      els.showToday.checked && todayOffset >= 0 && todayOffset <= days
         ? `<div class="today" style="left:${todayOffset * unit + unit / 2}px"></div>`
         : "";
+    const grid = weekendGridHtml(days, min, unit);
+    const canDrag = !els.clientMode.checked;
 
     const noLeft = !els.showLeftCol.checked;
     els.gantt.classList.toggle("no-left", noLeft);
 
     const head = `<div class="gantt-head">
-      <div class="left-cell">任務</div>
+      <div class="left-cell">${escapeHtml(tr("ganttTaskCol"))}</div>
       <div class="time-head" style="width:${chartW}px">
         <div class="month-row">${months
           .map((m) => `<div class="month-cell" style="width:${m.span * unit}px">${escapeHtml(m.key)}</div>`)
@@ -597,38 +963,37 @@
           ? g.items.filter((t) => !state.excluded.has(taskKey(t)))
           : g.items;
         if (!groupItems.length) return "";
+        const groupColor =
+          g.key && els.groupBy.value === "phase"
+            ? colorFor(g.key)
+            : colorFor(groupItems[0] && groupItems[0].phase);
+        const dragGroupAttrs =
+          canDrag && g.key
+            ? ` data-drag-group="${escapeHtml(g.key)}"`
+            : "";
+        const grip =
+          canDrag && g.key
+            ? `<span class="drag-grip" draggable="true" data-drag-handle="group" title="${escapeHtml(tr("dragGroup"))}" aria-hidden="true"></span>`
+            : "";
         const groupRow = g.key
-          ? `<div class="group-row"><div class="group-label">${escapeHtml(g.key)}</div><div class="bars" style="width:${chartW}px;height:28px;background:#f3efe6"></div></div>`
+          ? `<div class="group-row drop-target"${dragGroupAttrs}><div class="group-label" style="border-left:4px solid ${groupColor}"><span class="phase-dot" style="background:${groupColor}"></span>${grip}<span class="group-title">${escapeHtml(g.key)}</span></div><div class="bars group-bars" style="width:${chartW}px">${grid}</div></div>`
           : "";
         const rows = groupItems
-          .map((t) => {
-            const key = taskKey(t);
+          .map((task) => {
+            const key = taskKey(task);
             const excluded = state.excluded.has(key);
-            let bar = "";
-            if (t.start) {
-              const left = dayDiff(min, t.start) * unit;
-              const dur = Math.max(1, dayDiff(t.start, t.end) + 1);
-              const w = Math.max(dur * unit - 2, 10);
-              const cls =
-                t.type === "Payment-In" || /payment/i.test(t.type)
-                  ? "payment"
-                  : t.type === "Milestone"
-                    ? "milestone"
-                    : "";
-              const range =
-                t.end && dayDiff(t.start, t.end) > 0 ? `${fmt(t.start)} → ${fmt(t.end)}` : fmt(t.start);
-              bar = `<div class="item" style="left:${left}px">
-                <div class="bar ${cls}" style="width:${w}px;background:${colorFor(t.phase)}"></div>
-                <div class="bar-label">${labelBits(t, show, range)}</div>
-              </div>`;
-            }
-            const indent = t.parent ? " indent" : "";
+            const bar = barMarkup(task, min, unit, show);
+            const indent = task.parent ? " indent" : "";
             const hideBtn = els.showLeftCol.checked
-              ? `<button type="button" class="hide-btn${excluded ? " is-hidden" : ""}" data-toggle="${escapeHtml(key)}" title="${excluded ? "此項目不會出現在交付內容，點擊恢復" : "交付時隱藏此項目"}">${excluded ? "已隱藏" : "隱藏"}</button>`
+              ? `<button type="button" class="hide-btn${excluded ? " is-hidden" : ""}" data-toggle="${escapeHtml(key)}" title="${escapeHtml(excluded ? tr("hiddenTitle") : tr("hideTitle"))}">${escapeHtml(excluded ? tr("hidden") : tr("hide"))}</button>`
               : "";
-            return `<div class="gantt-row${excluded ? " row-excluded" : ""}">
-              <div class="left-cell${indent}">${hideBtn}<span class="task-title" title="${escapeHtml(t.name)}">${escapeHtml(t.name)}</span></div>
-              <div class="bars" style="width:${chartW}px">${todayLine}${bar}</div>
+            const dragTaskAttrs = canDrag ? ` data-drag-task="${task.id}"` : "";
+            const taskGrip = canDrag
+              ? `<span class="drag-grip" draggable="true" data-drag-handle="task" title="${escapeHtml(tr("dragTask"))}" aria-hidden="true"></span>`
+              : "";
+            return `<div class="gantt-row drop-target${excluded ? " row-excluded" : ""}"${dragTaskAttrs}>
+              <div class="left-cell${indent}">${taskGrip}${hideBtn}<span class="task-title" title="${escapeHtml(task.name)}">${escapeHtml(task.name)}</span></div>
+              <div class="bars" style="width:${chartW}px">${grid}${todayLine}${bar}</div>
             </div>`;
           })
           .join("");
@@ -636,9 +1001,10 @@
       })
       .join("");
 
-    els.gantt.innerHTML = head + body;
+    els.gantt.innerHTML = phaseLegendHtml(groups) + head + body;
     els.gantt.querySelectorAll("[data-toggle]").forEach((btn) => {
-      btn.addEventListener("click", () => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
         const key = btn.dataset.toggle;
         if (state.excluded.has(key)) state.excluded.delete(key);
         else state.excluded.add(key);
@@ -646,6 +1012,8 @@
         render();
       });
     });
+    bindDrag();
+    bindLegendColors();
   }
 
   function showWorkspace(on) {
@@ -666,8 +1034,14 @@
       state.mapping = { ...state.mapping, ...schema.mapping };
     }
     const fromSchema = schema && schema.excluded ? schema.excluded : [];
-    const fromGlobal = prefs.excludedByName || [];
-    state.excluded = new Set([...fromSchema, ...fromGlobal].filter(Boolean));
+    state.excluded = new Set(fromSchema.filter(Boolean));
+    const ord = (schema && schema.order) || { groups: [], tasks: [] };
+    state.order = {
+      groups: Array.isArray(ord.groups) ? ord.groups.slice() : [],
+      tasks: Array.isArray(ord.tasks) ? ord.tasks.slice() : []
+    };
+    state.colors =
+      schema && schema.colors && typeof schema.colors === "object" ? { ...schema.colors } : {};
   }
 
   function loadGrid(grid) {
@@ -680,12 +1054,19 @@
     state.mapping = autoMap(state.headers, state.rows);
     restoreExcludedAndMapping();
     buildTasks();
+    // Drop hide-list entries that are not in this file
+    const validKeys = new Set(state.tasks.map(taskKey));
+    state.excluded = new Set([...state.excluded].filter((k) => validKeys.has(k)));
     fillFilters(false);
     renderMapping();
     showWorkspace(true);
+    // If client preview would show nothing, fall back to internal view
+    if (els.clientMode.checked && visibleTasks(true).length === 0 && filteredPool().length > 0) {
+      els.clientMode.checked = false;
+    }
     savePrefs();
     render();
-    toast("匯入完成，已套用先前的設定");
+    toast(tr("toastLoaded"));
   }
 
   function readFile(file) {
@@ -694,7 +1075,7 @@
       loadGrid(parseCsv(String(reader.result || "")));
       const fn = $("fileName");
       if (fn) {
-        fn.textContent = `已匯入：${file.name}`;
+        fn.textContent = tr("imported", { name: file.name });
         fn.classList.remove("hidden");
       }
     };
@@ -702,32 +1083,62 @@
   }
 
   function exportTitle() {
-    return els.filterProject.value === "__all__" ? "Project Timeline" : els.filterProject.value;
+    return els.filterProject.value === "__all__" ? tr("defaultTitle") : els.filterProject.value;
+  }
+
+  function scheduleRangeLabel(dated) {
+    if (!dated || !dated.length) return tr("noScheduleRange");
+    const start = new Date(Math.min(...dated.map((t) => t.start)));
+    const end = new Date(Math.max(...dated.map((t) => t.end || t.start)));
+    return tr("scheduleRange", { start: fmt(start), end: fmt(end) });
+  }
+
+  function updateWorkspaceHeader(dated) {
+    const titleEl = $("wsTitle");
+    const subEl = $("wsSubtitle");
+    if (!titleEl) return;
+    if (!state.headers.length) {
+      titleEl.textContent = tr("previewTitle");
+      if (subEl) subEl.textContent = "";
+      return;
+    }
+    titleEl.textContent = exportTitle();
+    if (subEl) subEl.textContent = scheduleRangeLabel(dated);
   }
 
   function clientHtmlCss() {
-    return `:root{--paper:#fffdf8;--ink:#1c1914;--muted:#6b6458;--line:#e4ddd2;--row-h:40px;--left-w:300px;--font:"Segoe UI","PingFang TC","Noto Sans TC","Microsoft JhengHei",sans-serif}
+    return `:root{--paper:#ffffff;--ink:#11334f;--muted:#7a8b9a;--line:#d9e1e8;--row-h:40px;--left-w:300px;--font:"Segoe UI","PingFang TC","Noto Sans TC","Microsoft JhengHei",sans-serif}
 *{box-sizing:border-box}body{margin:0;font-family:var(--font);background:#fff;color:var(--ink)}
-.export-head{padding:16px 24px 0}.export-head h1{margin:0 0 4px;font-size:20px}.export-head p{margin:0;color:#6b6458;font-size:13px}
+.export-head{padding:16px 24px 0}.export-head h1{margin:0 0 4px;font-size:20px}.export-head p{margin:0;color:#7a8b9a;font-size:13px}
 .gantt-wrap{margin:16px;overflow:auto}.gantt{min-width:100%}
+.phase-legend{display:flex;flex-wrap:wrap;gap:8px 14px;padding:10px 14px;border-bottom:1px solid var(--line);background:#fafcfd}
+.phase-chip{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:#3a5166;font-weight:600}
+.phase-chip i{width:12px;height:12px;border-radius:3px;display:inline-block;border:1px solid rgba(17,51,79,.15)}
 .gantt-head,.gantt-row,.group-row{display:grid;grid-template-columns:var(--left-w) 1fr}
 .gantt.no-left{--left-w:0px}.gantt.no-left .left-cell,.gantt.no-left .group-label{display:none}
 .gantt.no-left .gantt-head,.gantt.no-left .gantt-row,.gantt.no-left .group-row{grid-template-columns:1fr}
-.gantt-head{background:#faf7f1;border-bottom:1px solid var(--line)}
-.left-cell,.group-label{background:var(--paper);border-right:1px solid var(--line);padding:0 12px;display:flex;align-items:center;height:var(--row-h);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.gantt-head .left-cell{font-weight:650;height:48px}.group-label{background:#efe8d9;font-weight:650;height:28px;font-size:12px}
+.gantt-head{background:#f3f7fa;border-bottom:1px solid var(--line)}
+.left-cell,.group-label{background:var(--paper);border-right:1px solid var(--line);padding:0 12px;display:flex;align-items:center;gap:6px;height:var(--row-h);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gantt-head .left-cell{font-weight:650;height:48px}.group-label{background:#eef4f9;font-weight:650;height:28px;font-size:12px}
+.phase-dot{width:8px;height:8px;border-radius:50%;flex:0 0 auto}
 .indent .task-title{padding-left:14px;color:var(--muted)}.time-head{height:48px}
 .month-row,.day-row{display:flex;height:24px}
 .month-cell,.day-cell{border-right:1px solid var(--line);font-size:11px;color:var(--muted);display:flex;align-items:center;justify-content:center;flex:0 0 auto}
-.month-cell{font-weight:650;color:var(--ink);background:#f3efe6}.weekend{background:#f6f2ea}
-.gantt-row .left-cell{border-bottom:1px solid #f0ebe3}
-.bars{position:relative;height:var(--row-h);border-bottom:1px solid #f0ebe3}
-.item{position:absolute;top:8px;display:flex;align-items:center;gap:8px}
-.bar{flex:0 0 auto;height:24px;border-radius:6px;min-width:8px;box-shadow:inset 0 0 0 1px rgba(0,0,0,.08)}
+.month-cell{font-weight:650;color:var(--ink);background:#e8f1f8;justify-content:flex-start;padding-left:8px}.weekend{background:#f5f8fb}
+.gantt-row .left-cell{border-bottom:1px solid #eef2f5}
+.bars{position:relative;height:var(--row-h);border-bottom:1px solid #eef2f5;overflow:visible}
+.group-bars{height:28px;background:#eef4f9}
+.grid-weekend{position:absolute;top:0;bottom:0;background:#f5f8fb;pointer-events:none;z-index:0}
+.grid-line{position:absolute;top:0;bottom:0;width:1px;background:#eef2f5;pointer-events:none;z-index:0}
+.item{position:absolute;top:8px;display:flex;align-items:center;gap:8px;z-index:1}
+.bar{flex:0 0 auto;height:24px;border-radius:6px;min-width:14px;border:1px solid transparent}
+.bar.milestone{border-radius:6px}
+.bar.payment{outline:1px dashed rgba(17,51,79,.35);outline-offset:2px}
 .bar-label{display:flex;align-items:center;gap:8px;white-space:nowrap;font-size:12.5px}
-.bar-label .name{font-weight:650}.bar-label .dates{color:#5c564c}.bar-label .meta{color:var(--muted)}
-.tag{font-size:11px;background:#e8eef8;color:#2c4a7c;border-radius:999px;padding:2px 7px;font-weight:650}
-.today{position:absolute;top:0;bottom:0;width:2px;background:#c0392b}`;
+.bar-label .name{font-weight:650}.bar-label .dates{color:#3a5166}.bar-label .meta{color:var(--muted)}
+.tag{font-size:11px;background:#e8f1f8;color:#11334f;border-radius:999px;padding:2px 7px;font-weight:650}
+.today{position:absolute;top:0;bottom:0;width:2px;background:#c65442;z-index:0}
+.drag-grip{display:none}`;
   }
 
   function downloadClientHtml() {
@@ -737,9 +1148,18 @@
     const clone = els.gantt.cloneNode(true);
     clone.querySelectorAll(".hide-btn").forEach((n) => n.remove());
     clone.querySelectorAll(".row-excluded").forEach((n) => n.remove());
+    clone.querySelectorAll(".drag-grip").forEach((n) => n.remove());
+    clone.querySelectorAll("[draggable]").forEach((n) => {
+      n.removeAttribute("draggable");
+      n.removeAttribute("data-drag-task");
+      n.removeAttribute("data-drag-group");
+    });
     const title = exportTitle();
-    const html = `<!DOCTYPE html><html lang="zh-Hant"><head><meta charset="UTF-8"/><title>${escapeHtml(title)}</title><style>${clientHtmlCss()}</style></head><body>
-<div class="export-head"><h1>${escapeHtml(title)}</h1><p>專案時間軸 · ${escapeHtml(new Date().toISOString().slice(0, 10))}</p></div>
+    const subtitle = scheduleRangeLabel(
+      layoutModel(true).dated
+    );
+    const html = `<!DOCTYPE html><html lang="${lang}"><head><meta charset="UTF-8"/><title>${escapeHtml(title)}</title><style>${clientHtmlCss()}</style></head><body>
+<div class="export-head"><h1>${escapeHtml(title)}</h1><p>${escapeHtml(subtitle)}</p></div>
 <main class="gantt-wrap">${clone.outerHTML}</main></body></html>`;
     const blob = new Blob([html], { type: "text/html;charset=utf-8" });
     const a = document.createElement("a");
@@ -749,7 +1169,7 @@
     URL.revokeObjectURL(a.href);
     els.clientMode.checked = wasClient;
     render();
-    toast("已匯出互動網頁（隱藏項目不會出現）");
+    toast(tr("toastHtml"));
   }
 
   function drawFullPng() {
@@ -759,7 +1179,7 @@
     els.clientMode.checked = wasClient;
     const { tasks, min, days, unit, chartW, groups, show, leftW } = model;
     if (!tasks.length) {
-      toast("目前的篩選條件下沒有可交付的項目");
+      toast(tr("toastNoExport"));
       return null;
     }
 
@@ -772,7 +1192,7 @@
       const items = g.items.filter((t) => !state.excluded.has(taskKey(t)));
       if (!items.length) return;
       if (g.key) {
-        flat.push({ kind: "group", key: g.key });
+        flat.push({ kind: "group", key: g.key, phase: items[0] && items[0].phase });
         rowsH += groupH;
       }
       items.forEach((t) => {
@@ -791,31 +1211,31 @@
     canvas.height = Math.floor(height * scale);
     const ctx = canvas.getContext("2d");
     ctx.scale(scale, scale);
-    ctx.fillStyle = "#fffdf8";
+    ctx.fillStyle = "#ffffff";
     ctx.fillRect(0, 0, width, height);
 
     const title = exportTitle();
-    ctx.fillStyle = "#1c1914";
+    ctx.fillStyle = "#11334f";
     ctx.font = "650 20px Segoe UI, Microsoft JhengHei, sans-serif";
     ctx.fillText(title, pad, pad + 22);
-    ctx.fillStyle = "#6b6458";
+    ctx.fillStyle = "#7a8b9a";
     ctx.font = "13px Segoe UI, Microsoft JhengHei, sans-serif";
-    ctx.fillText(`專案時間軸 · ${new Date().toISOString().slice(0, 10)}`, pad, pad + 42);
+    ctx.fillText(scheduleRangeLabel(model.dated), pad, pad + 42);
 
     const ox = pad;
     const oy = pad + titleH;
-    ctx.fillStyle = "#faf7f1";
+    ctx.fillStyle = "#f3f7fa";
     ctx.fillRect(ox, oy, leftW + chartW, headH);
-    ctx.strokeStyle = "#e4ddd2";
+    ctx.strokeStyle = "#d9e1e8";
     ctx.beginPath();
     ctx.moveTo(ox, oy + headH);
     ctx.lineTo(ox + leftW + chartW, oy + headH);
     ctx.stroke();
 
     if (leftW) {
-      ctx.fillStyle = "#1c1914";
+      ctx.fillStyle = "#11334f";
       ctx.font = "650 13px Segoe UI, Microsoft JhengHei, sans-serif";
-      ctx.fillText("任務", ox + 12, oy + 30);
+      ctx.fillText(tr("ganttTaskCol"), ox + 12, oy + 30);
       ctx.beginPath();
       ctx.moveTo(ox + leftW, oy);
       ctx.lineTo(ox + leftW, oy + headH + rowsH);
@@ -829,9 +1249,9 @@
       let span = 0;
       while (mi + span < days && monthKey(addDays(min, mi + span)) === key) span += 1;
       const x = ox + leftW + mi * unit;
-      ctx.fillStyle = "#f3efe6";
+      ctx.fillStyle = "#e8f1f8";
       ctx.fillRect(x, oy, span * unit, 24);
-      ctx.fillStyle = "#1c1914";
+      ctx.fillStyle = "#11334f";
       ctx.font = "650 11px Segoe UI, Microsoft JhengHei, sans-serif";
       ctx.fillText(key, x + 6, oy + 16);
       mi += span;
@@ -840,15 +1260,15 @@
       const d = addDays(min, i);
       const x = ox + leftW + i * unit;
       if (d.getDay() === 0 || d.getDay() === 6) {
-        ctx.fillStyle = "#f6f2ea";
+        ctx.fillStyle = "#f5f8fb";
         ctx.fillRect(x, oy + 24, unit, 24);
       }
       if (els.zoom.value === "day" || i % 7 === 0) {
-        ctx.fillStyle = "#6b6458";
+        ctx.fillStyle = "#7a8b9a";
         ctx.font = "11px Segoe UI, Microsoft JhengHei, sans-serif";
         ctx.fillText(String(d.getDate()), x + unit / 2 - 4, oy + 40);
       }
-      ctx.strokeStyle = "#e4ddd2";
+      ctx.strokeStyle = "#d9e1e8";
       ctx.beginPath();
       ctx.moveTo(x + unit, oy);
       ctx.lineTo(x + unit, oy + headH);
@@ -858,10 +1278,13 @@
     let y = oy + headH;
     flat.forEach((row) => {
       if (row.kind === "group") {
-        ctx.fillStyle = "#efe8d9";
+        ctx.fillStyle = "#eef4f9";
         ctx.fillRect(ox, y, leftW + chartW, groupH);
+        const gcol = colorFor(row.phase);
+        ctx.fillStyle = gcol;
+        ctx.fillRect(ox, y, 3, groupH);
         if (leftW) {
-          ctx.fillStyle = "#1c1914";
+          ctx.fillStyle = "#11334f";
           ctx.font = "650 12px Segoe UI, Microsoft JhengHei, sans-serif";
           ctx.fillText(row.key, ox + 12, y + 18);
         }
@@ -869,36 +1292,54 @@
         return;
       }
       const t = row.task;
-      ctx.strokeStyle = "#f0ebe3";
+      ctx.strokeStyle = "#eef2f5";
       ctx.beginPath();
       ctx.moveTo(ox, y + rowH);
       ctx.lineTo(ox + leftW + chartW, y + rowH);
       ctx.stroke();
       if (leftW) {
-        ctx.fillStyle = t.parent ? "#6b6458" : "#1c1914";
+        ctx.fillStyle = t.parent ? "#7a8b9a" : "#11334f";
         ctx.font = "13px Segoe UI, Microsoft JhengHei, sans-serif";
         const label = t.name.length > 28 ? `${t.name.slice(0, 28)}…` : t.name;
         ctx.fillText(label, ox + (t.parent ? 24 : 12), y + 25);
       }
       if (t.start) {
         const left = dayDiff(min, t.start) * unit;
-        const dur = Math.max(1, dayDiff(t.start, t.end) + 1);
-        const w = Math.max(dur * unit - 2, 10);
+        const span = dayDiff(t.start, t.end);
+        const dur = Math.max(1, span + 1);
         const col = colorFor(t.phase);
-        ctx.fillStyle = col.startsWith("#") ? col : col;
-        roundRect(ctx, ox + leftW + left, y + 8, w, 24, 6);
+        const accent = shade(col, -48);
+        const bx = ox + leftW + left;
+        const isMilestone = t.type === "Milestone" && span <= 0;
+        const w = isMilestone ? Math.max(unit * 0.85, 18) : Math.max(dur * unit - 2, 14);
+        // weekend stripes behind bars
+        for (let i = 0; i < days; i += 1) {
+          const d = addDays(min, i);
+          if (d.getDay() === 0 || d.getDay() === 6) {
+            ctx.fillStyle = "#f5f8fb";
+            ctx.fillRect(ox + leftW + i * unit, y, unit, rowH);
+          }
+        }
+        ctx.fillStyle = col;
+        roundRect(ctx, bx, y + 8, w, 24, 6);
         ctx.fill();
+        ctx.fillStyle = accent;
+        ctx.fillRect(bx, y + 8, 3, 24);
+        ctx.strokeStyle = accent;
+        ctx.lineWidth = 1;
+        roundRect(ctx, bx, y + 8, w, 24, 6);
+        ctx.stroke();
         const range =
           t.end && dayDiff(t.start, t.end) > 0 ? `${fmt(t.start)} → ${fmt(t.end)}` : fmt(t.start);
         let tx = ox + leftW + left + w + 8;
         const parts = [];
-        if (show.name) parts.push({ text: t.name, bold: true, color: "#1c1914" });
-        if (show.dates) parts.push({ text: range, bold: false, color: "#5c564c" });
-        if (show.person && t.person) parts.push({ text: t.person.split(",")[0], bold: true, color: "#2c4a7c" });
-        if (show.duration && t.duration) parts.push({ text: t.duration, bold: false, color: "#6b6458" });
-        if (show.phase && t.phase) parts.push({ text: t.phase, bold: false, color: "#6b6458" });
-        if (show.type && t.type) parts.push({ text: t.type, bold: false, color: "#6b6458" });
-        if (show.note && t.note) parts.push({ text: t.note.split("\n")[0].slice(0, 40), bold: false, color: "#6b6458" });
+        if (show.name) parts.push({ text: t.name, bold: true, color: "#11334f" });
+        if (show.dates) parts.push({ text: range, bold: false, color: "#3a5166" });
+        if (show.person && t.person) parts.push({ text: t.person.split(",")[0], bold: true, color: "#23649a" });
+        if (show.duration && t.duration) parts.push({ text: t.duration, bold: false, color: "#7a8b9a" });
+        if (show.phase && t.phase) parts.push({ text: t.phase, bold: false, color: "#7a8b9a" });
+        if (show.type && t.type) parts.push({ text: t.type, bold: false, color: "#7a8b9a" });
+        if (show.note && t.note) parts.push({ text: t.note.split("\n")[0].slice(0, 40), bold: false, color: "#7a8b9a" });
         parts.forEach((p) => {
           ctx.fillStyle = p.color;
           ctx.font = `${p.bold ? "650 " : ""}12.5px Segoe UI, Microsoft JhengHei, sans-serif`;
@@ -931,7 +1372,7 @@
       a.download = `${safeFile(out.title)}-timeline.png`;
       a.click();
       URL.revokeObjectURL(a.href);
-      toast("已匯出完整圖片");
+      toast(tr("toastPng"));
     }, "image/png");
   }
 
@@ -941,10 +1382,10 @@
     const dataUrl = out.canvas.toDataURL("image/png");
     const w = window.open("", "_blank");
     if (!w) {
-      toast("瀏覽器阻擋了彈出視窗，請允許後重試，或改用「匯出圖片」");
+      toast(tr("toastPopup"));
       return;
     }
-    w.document.write(`<!DOCTYPE html><html><head><title>${escapeHtml(out.title)}</title>
+    w.document.write(`<!DOCTYPE html><html lang="${lang}"><head><title>${escapeHtml(out.title)}</title>
 <style>
   @page { margin: 8mm; size: auto; }
   html, body { margin: 0; background: #fff; }
@@ -952,7 +1393,7 @@
   .tip { font: 13px sans-serif; color: #666; padding: 8px 12px; }
   @media print { .tip { display: none; } }
 </style></head><body>
-<p class="tip">請在列印對話框選「另存 PDF」，並關閉頁首頁尾。這是一整張長圖，不會被橫向斬開。</p>
+<p class="tip">${escapeHtml(tr("pdfTip"))}</p>
 <img src="${dataUrl}" alt="timeline"/>
 <script>window.onload=function(){setTimeout(function(){window.print()},300)}<\/script>
 </body></html>`);
@@ -975,12 +1416,20 @@
     const file = e.dataTransfer.files[0];
     if (file) readFile(file);
   });
-  $("btnBrowse").addEventListener("click", () => els.fileInput.click());
+  els.dropzone.addEventListener("click", (e) => {
+    if (e.target.closest("button, a, input")) return;
+    els.fileInput.click();
+  });
+  els.dropzone.style.cursor = "pointer";
+  $("btnBrowse").addEventListener("click", (e) => {
+    e.stopPropagation();
+    els.fileInput.click();
+  });
   els.fileInput.addEventListener("change", () => {
     const file = els.fileInput.files[0];
     if (file) readFile(file);
   });
-  ["filterProject", "filterType", "groupBy", "zoom", "hideNoDate", "clientMode", "showLeftCol"].forEach((id) => {
+  ["filterProject", "filterType", "groupBy", "zoom", "hideNoDate", "clientMode", "showLeftCol", "showToday"].forEach((id) => {
     $(id).addEventListener("change", persistUi);
   });
   document.querySelectorAll("[data-show]").forEach((el) => el.addEventListener("change", persistUi));
@@ -989,30 +1438,28 @@
     savePrefs();
     render();
   });
+  const btnResetOrder = $("btnResetOrder");
+  if (btnResetOrder) {
+    btnResetOrder.addEventListener("click", () => {
+      state.order = { groups: [], tasks: [] };
+      savePrefs();
+      render();
+      toast(tr("toastOrderReset"));
+    });
+  }
   els.btnHtml.addEventListener("click", downloadClientHtml);
   els.btnPng.addEventListener("click", downloadPng);
   els.btnPdf.addEventListener("click", downloadPdfViaImage);
-  function loadSample() {
-    fetch("sample/project-tasks.csv")
-      .then((r) => {
-        if (!r.ok) throw new Error("missing");
-        return r.text();
-      })
-      .then((text) => {
-        loadGrid(parseCsv(text));
-        const fn = $("fileName");
-        if (fn) {
-          fn.textContent = "已載入範例資料";
-          fn.classList.remove("hidden");
-        }
-      })
-      .catch(() => {
-        alert("瀏覽器限制無法直接讀取範例檔。請把 sample/project-tasks.csv 拖進左側「資料來源」。");
-      });
+
+  document.querySelectorAll(".lang-btn").forEach((btn) => {
+    btn.addEventListener("click", () => setLang(btn.dataset.lang));
+  });
+
+  const btnUploadEmpty = $("btnUploadEmpty");
+  if (btnUploadEmpty) {
+    btnUploadEmpty.addEventListener("click", () => els.fileInput.click());
   }
-  $("btnSample").addEventListener("click", loadSample);
-  const btnSampleEmpty = $("btnSampleEmpty");
-  if (btnSampleEmpty) btnSampleEmpty.addEventListener("click", loadSample);
 
   applyGlobalPrefs();
+  applyStaticI18n();
 })();
